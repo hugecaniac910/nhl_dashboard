@@ -1,13 +1,9 @@
-{
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" }
-  ],
   "functions": {
-    "api/nhle-web.js": {
+    "api/nhle-web/[...path].js": {
       "memory": 1024,
       "maxDuration": 30
     },
-    "api/nhle-stats.js": {
+    "api/nhle-stats/[...path].js": {
       "memory": 1024,
       "maxDuration": 30
     }
