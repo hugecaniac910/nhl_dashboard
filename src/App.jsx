@@ -8,9 +8,9 @@ import {
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const SEASON_ID    = "20252026";
 const SEASON_LABEL = "2025·26";
-const PBP_BASE   = "/nhle-web/v1/gamecenter";
-const SCHED_BASE = "/nhle-web/v1/schedule";
-const STATS_BASE = "/nhle-stats/stats/rest/en/team";
+const PBP_BASE   = "/api/nhle-web/v1/gamecenter";
+const SCHED_BASE = "/api/nhle-web/v1/schedule";
+const STATS_BASE = "/api/nhle-stats/stats/rest/en/team";
 
 const FALLBACK_TEAMS = [
   { name:"Edmonton Oilers",       abbr:"EDM", pp:27.8, pk:78.5, wins:28, gp:51, conf:"W", ppOpp:185, pkOpp:178 },
