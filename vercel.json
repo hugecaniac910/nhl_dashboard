@@ -1,11 +1,12 @@
-  "functions": {
-    "api/nhle-web/[...path].js": {
-      "memory": 1024,
-      "maxDuration": 30
+{
+  "rewrites": [
+    {
+      "source": "/api/nhle-web/:path*",
+      "destination": "https://api-web.nhle.com/:path*"
     },
-    "api/nhle-stats/[...path].js": {
-      "memory": 1024,
-      "maxDuration": 30
+    {
+      "source": "/api/nhle-stats/:path*",
+      "destination": "https://api.nhle.com/:path*"
     }
-  }
+  ]
 }

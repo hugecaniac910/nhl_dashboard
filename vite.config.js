@@ -5,15 +5,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/nhle-web': {
+      '/api/nhle-web': {
         target: 'https://api-web.nhle.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/nhle-web/, '')
+        rewrite: (path) => path.replace(/^\/api\/nhle-web/, '')
       },
-      '/nhle-stats': {
+      '/api/nhle-stats': {
         target: 'https://api.nhle.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/nhle-stats/, '')
+        rewrite: (path) => path.replace(/^\/api\/nhle-stats/, '')
       }
     }
   }
