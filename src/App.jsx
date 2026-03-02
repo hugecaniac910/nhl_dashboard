@@ -698,7 +698,15 @@ export default function App() {
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
               <div>
-                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:800,color:"#fff"}}>Season Aggregate Rankings</div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:800,color:"#fff"}}>Season Aggregate Rankings</div>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,
+                    background:dataLabel==="live"?"rgba(0,229,160,.12)":"rgba(245,158,11,.1)",
+                    color:dataLabel==="live"?"#00e5a0":"#f59e0b",
+                    border:`1px solid ${dataLabel==="live"?"#00e5a040":"#f59e0b40"}`}}>
+                    {dataLabel==="live"?"✓ Live NHL API":"~ Estimates"}
+                  </span>
+                </div>
                 <div style={{fontSize:11,color:"#4a6fa5",marginTop:2}}>Close-Game Score = PP%×0.55 + (PK%−75)×0.90 · full-season data</div>
               </div>
               <div style={{display:"flex",gap:8}}>
