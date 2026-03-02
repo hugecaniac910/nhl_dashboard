@@ -168,7 +168,7 @@ async function processGamePBP(gameId) {
       const isClose=diff<=1;
       const expirySec=Math.min(gameSec+Math.min(durMin,2)*60, period*1200);
 
-      const event={ppTeamId,pkTeamId,homeId,awayId,homeAbbr,awayAbbr,isClose,diff,expirySec,scored:false};
+      const event={ppTeamId,pkTeamId,homeId,awayId,homeAbbr,awayAbbr,isClose,diff,expirySec,period,scored:false};
       activePPs.push(event);
       allEvents.push(event);
     }
@@ -206,6 +206,35 @@ function aggregateEvents(allEvents) {
     return {abbr,...s,ppPct,ppPctCG,pkPct,pkPctCG,ppDelta,pkDelta,clutch};
   }).filter(r=>r.ppOppCG>=3||r.pkOppCG>=3)
     .sort((a,b)=>(b.clutch??-99)-(a.clutch??-99));
+}
+
+function aggregatePeriodEvents(allEvents) {
+  const stats={};
+  const initP=()=>({ppOpp:0,ppGoals:0,pkOpp:0,pkGoals:0});
+  const init=()=>({p1:initP(),p2:initP(),p3:initP()});
+
+  for (const e of allEvents) {
+    if (e.period<1||e.period>3) continue;
+    const ppAbbr=e.ppTeamId===e.homeId?e.homeAbbr:e.awayAbbr;
+    const pkAbbr=e.pkTeamId===e.homeId?e.homeAbbr:e.awayAbbr;
+    const pKey=`p${e.period}`;
+    if (!stats[ppAbbr]) stats[ppAbbr]=init();
+    if (!stats[pkAbbr]) stats[pkAbbr]=init();
+    stats[ppAbbr][pKey].ppOpp++;
+    if (e.scored) stats[ppAbbr][pKey].ppGoals++;
+    stats[pkAbbr][pKey].pkOpp++;
+    if (e.scored) stats[pkAbbr][pKey].pkGoals++;
+  }
+
+  return Object.entries(stats).map(([abbr,s])=>{
+    const calc=(p)=>{
+      const {ppOpp,ppGoals,pkOpp,pkGoals}=s[p];
+      return {ppOpp,ppGoals,pkOpp,pkGoals,
+        ppPct:ppOpp>0?+(ppGoals/ppOpp*100).toFixed(1):null,
+        pkPct:pkOpp>0?+((pkOpp-pkGoals)/pkOpp*100).toFixed(1):null};
+    };
+    return {abbr,p1:calc('p1'),p2:calc('p2'),p3:calc('p3')};
+  }).sort((a,b)=>a.abbr.localeCompare(b.abbr));
 }
 
 // ─── TOOLTIP COMPONENTS ───────────────────────────────────────────────────────
@@ -272,6 +301,9 @@ export default function App() {
   const [ssError,    setSsError]    = useState("");
   const [ssResults,  setSsResults]  = useState([]);
   const [ssMeta,     setSsMeta]     = useState({totalEvents:0,closeEvents:0,gamesOk:0});
+  const [ssPeriodResults, setSsPeriodResults] = useState([]);
+  const [pdSortKey, setPdSortKey] = useState("abbr");
+  const [pdSortDir, setPdSortDir] = useState(1);
   const abortRef = useRef(false);
 
   useEffect(()=>{
@@ -306,7 +338,7 @@ export default function App() {
   async function runAnalysis() {
     abortRef.current=false;
     setSsPhase("fetching"); setSsProgress({done:0,total:0,ok:0,fail:0});
-    setSsResults([]); setSsError(""); setSsMeta({totalEvents:0,closeEvents:0,gamesOk:0});
+    setSsResults([]); setSsError(""); setSsMeta({totalEvents:0,closeEvents:0,gamesOk:0}); setSsPeriodResults([]);
 
     let gameIds=[];
     try { gameIds=await fetchGameIds(55); }
@@ -328,12 +360,14 @@ export default function App() {
 
     setSsMeta({totalEvents:all.length, closeEvents:all.filter(e=>e.isClose).length, gamesOk:ok});
     setSsResults(aggregateEvents(all));
+    setSsPeriodResults(aggregatePeriodEvents(all));
     setSsPhase("done");
   }
 
-  function cancel() { abortRef.current=true; setSsPhase("idle"); }
+  function cancel() { abortRef.current=true; setSsPhase("idle"); setSsPeriodResults([]); }
 
   const handleSort=(k)=>{ if(sortKey===k) setSortDir(d=>-d); else {setSortKey(k);setSortDir(-1);} };
+  const handlePdSort=(k)=>{ if(pdSortKey===k) setPdSortDir(d=>-d); else {setPdSortKey(k);setPdSortDir(-1);} };
   const SA=({col})=><span style={{marginLeft:3,opacity:sortKey===col?1:0.3,fontSize:9}}>{sortKey===col?(sortDir===-1?"▼":"▲"):"⬍"}</span>;
 
   const baseTeams=teams.length?teams:processTeams(FALLBACK_TEAMS);
@@ -344,12 +378,27 @@ export default function App() {
   const lgPK2=teams.length?+(teams.reduce((s,t)=>s+t.pk,0)/teams.length).toFixed(1):LG_PK;
   const top=baseTeams[0], pct=ssProgress.total>0?Math.round(ssProgress.done/ssProgress.total*100):0;
   const clutchBar=[...ssResults].filter(r=>r.clutch!=null).sort((a,b)=>b.clutch-a.clutch);
+  const periodLgAvg=ssPeriodResults.length>0?['p1','p2','p3'].map((p,i)=>{
+    const ppVals=ssPeriodResults.map(r=>r[p].ppPct).filter(v=>v!=null);
+    const pkVals=ssPeriodResults.map(r=>r[p].pkPct).filter(v=>v!=null);
+    return {period:['1st','2nd','3rd'][i],
+      ppPct:ppVals.length?+(ppVals.reduce((s,v)=>s+v,0)/ppVals.length).toFixed(1):0,
+      pkPct:pkVals.length?+(pkVals.reduce((s,v)=>s+v,0)/pkVals.length).toFixed(1):0};
+  }):[];
+  const pdSorted=[...ssPeriodResults].sort((a,b)=>{
+    if(pdSortKey==="abbr") return pdSortDir*(a.abbr<b.abbr?-1:1);
+    const match=pdSortKey.match(/^p([123])(pp|pk)$/);
+    if(!match) return 0;
+    const [,pn,type]=match;
+    return pdSortDir*((b[`p${pn}`][`${type}Pct`]??-1)-(a[`p${pn}`][`${type}Pct`]??-1));
+  });
 
   const TABS=[
     {id:"scorestate",label:"🧊 Score State Engine"},
     {id:"rankings",  label:"📊 Season Rankings"},
     {id:"scatter",   label:"⚡ PP vs PK Matrix"},
     {id:"model",     label:"🔮 Predictive Model"},
+    {id:"periods",   label:"📅 Period Breakdown"},
   ];
 
   // ── reusable table header button ──
@@ -841,6 +890,126 @@ export default function App() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            PERIOD BREAKDOWN
+        ══════════════════════════════════════════ */}
+        {tab==="periods"&&(
+          <div>
+            <div style={{marginBottom:22}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:24,fontWeight:800,color:"#fff"}}>Period-by-Period PP &amp; PK Breakdown</div>
+              <div style={{fontSize:11,color:"#4a6fa5",marginTop:3,maxWidth:680,lineHeight:1.7}}>
+                Power play and penalty kill performance split by 1st, 2nd, and 3rd period for each team — powered by Score State Engine play-by-play data.
+              </div>
+            </div>
+
+            {ssPhase!=="done"?(
+              <div style={{background:"#0a1628",border:"1px solid #1e3050",borderRadius:12,padding:"48px 30px",textAlign:"center"}}>
+                <div style={{fontSize:40,marginBottom:12}}>📅</div>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:800,color:"#fff",marginBottom:8}}>Score State Engine Required</div>
+                <div style={{fontSize:12,color:"#4a6fa5",marginBottom:22,maxWidth:440,margin:"0 auto 22px"}}>
+                  Period-by-period data is extracted from the same play-by-play engine. Switch to the Score State Engine tab and run the analysis to populate this view.
+                </div>
+                <button onClick={()=>setTab("scorestate")}
+                  style={{background:"linear-gradient(135deg,#1a3a6f,#0f2448)",border:"1px solid #4a9eff",borderRadius:8,color:"#4a9eff",fontFamily:"inherit",fontWeight:700,fontSize:12,letterSpacing:".08em",padding:"12px 28px",cursor:"pointer"}}>
+                  → Go to Score State Engine
+                </button>
+              </div>
+            ):(
+              <>
+                {/* League avg charts — PP% and PK% side by side */}
+                <div style={{display:"flex",gap:16,marginBottom:22,flexWrap:"wrap"}}>
+                  {[
+                    {label:"POWER PLAY % BY PERIOD",dataKey:"ppPct",color:"#a78bfa",domain:[0,35]},
+                    {label:"PENALTY KILL % BY PERIOD",dataKey:"pkPct",color:"#34d399",domain:[74,90]},
+                  ].map(chart=>(
+                    <div key={chart.dataKey} style={{flex:"1 1 300px",background:"#0a1628",border:"1px solid #1e3050",borderRadius:12,padding:"18px 14px"}}>
+                      <div style={{fontSize:10,color:"#4a6fa5",marginBottom:12,letterSpacing:".08em"}}>{chart.label} — LEAGUE AVERAGE</div>
+                      <ResponsiveContainer width="100%" height={170}>
+                        <BarChart data={periodLgAvg} margin={{top:16,right:10,bottom:0,left:0}}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e3050"/>
+                          <XAxis dataKey="period" tick={{fill:"#7a9fc0",fontSize:11}}/>
+                          <YAxis domain={chart.domain} tick={{fill:"#4a6fa5",fontSize:9}} tickFormatter={v=>v+"%"} width={32}/>
+                          <Tooltip formatter={v=>v.toFixed(1)+"%"} contentStyle={{background:"#0a1628",border:"1px solid #1e3050",borderRadius:6,fontSize:11,color:"#e2e8f0"}}/>
+                          <Bar dataKey={chart.dataKey} fill={chart.color} radius={[4,4,0,0]}
+                            label={{position:"top",fill:chart.color,fontSize:10,formatter:v=>v.toFixed(1)+"%"}}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Team period table */}
+                <div style={{background:"#0a1628",border:"1px solid #1e3050",borderRadius:12,overflow:"hidden",marginBottom:20}}>
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid #1e3050"}}>
+                    <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:800,color:"#fff"}}>Team Period Breakdown — PP% &amp; PK%</div>
+                    <div style={{fontSize:10,color:"#4a6fa5",marginTop:2}}>
+                      Click headers to sort · <span style={{color:"#a78bfa"}}>PP%</span> power play · <span style={{color:"#34d399"}}>PK%</span> penalty kill · (n) = opportunities · highlighted cell = best period for that team
+                    </div>
+                  </div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid #1a2844",background:"#060d1a"}}>
+                          <th style={{padding:"10px 14px",textAlign:"left",minWidth:60}}>
+                            <button onClick={()=>handlePdSort("abbr")} style={{background:"none",border:"none",cursor:"pointer",color:"#7a9fc0",fontFamily:"inherit",fontSize:10,fontWeight:500,letterSpacing:".08em",textTransform:"uppercase",padding:0}}>
+                              Team<span style={{marginLeft:3,fontSize:9,opacity:pdSortKey==="abbr"?1:0.3}}>{pdSortKey==="abbr"?(pdSortDir===1?"▲":"▼"):"⬍"}</span>
+                            </button>
+                          </th>
+                          {["1ST","2ND","3RD"].map(label=>(
+                            <th key={label} colSpan={2} style={{padding:"8px",textAlign:"center",borderLeft:"1px solid #1a2844",color:"#7a9fc0",fontSize:10,letterSpacing:".05em"}}>
+                              {label} PERIOD
+                            </th>
+                          ))}
+                        </tr>
+                        <tr style={{borderBottom:"1px solid #1e3050",background:"#070e1e"}}>
+                          <th/>
+                          {["p1","p2","p3"].flatMap(p=>[
+                            <th key={`${p}pp`} style={{padding:"6px 8px",textAlign:"center",borderLeft:"1px solid #1a2844",minWidth:80}}>
+                              <button onClick={()=>handlePdSort(`${p}pp`)} style={{background:"none",border:"none",cursor:"pointer",color:"#a78bfa",fontFamily:"inherit",fontSize:10,fontWeight:500,letterSpacing:".05em",padding:0,whiteSpace:"nowrap"}}>
+                                PP%<span style={{marginLeft:3,fontSize:9,opacity:pdSortKey===`${p}pp`?1:0.3}}>{pdSortKey===`${p}pp`?(pdSortDir===1?"▲":"▼"):"⬍"}</span>
+                              </button>
+                            </th>,
+                            <th key={`${p}pk`} style={{padding:"6px 8px",textAlign:"center",minWidth:80}}>
+                              <button onClick={()=>handlePdSort(`${p}pk`)} style={{background:"none",border:"none",cursor:"pointer",color:"#34d399",fontFamily:"inherit",fontSize:10,fontWeight:500,letterSpacing:".05em",padding:0,whiteSpace:"nowrap"}}>
+                                PK%<span style={{marginLeft:3,fontSize:9,opacity:pdSortKey===`${p}pk`?1:0.3}}>{pdSortKey===`${p}pk`?(pdSortDir===1?"▲":"▼"):"⬍"}</span>
+                              </button>
+                            </th>,
+                          ])}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pdSorted.map(t=>{
+                          const bestPP=['p1','p2','p3'].reduce((b,p)=>(t[p].ppPct??-1)>(t[b].ppPct??-1)?p:b,'p1');
+                          const bestPK=['p1','p2','p3'].reduce((b,p)=>(t[p].pkPct??-1)>(t[b].pkPct??-1)?p:b,'p1');
+                          return (
+                            <tr key={t.abbr} className="row" style={{borderBottom:"1px solid #0f1b2d"}}>
+                              <td style={{padding:"9px 14px",fontWeight:700,color:"#c9d8f0"}}>{t.abbr}</td>
+                              {["p1","p2","p3"].flatMap(p=>[
+                                <td key={`${p}pp`} style={{padding:"8px",textAlign:"center",borderLeft:"1px solid #0f1b2d",background:p===bestPP&&t[p].ppPct!=null?"rgba(167,139,250,.08)":"transparent"}}>
+                                  <span style={{color:p===bestPP&&t[p].ppPct!=null?"#d4a8ff":"#a78bfa",fontWeight:p===bestPP&&t[p].ppPct!=null?700:400}}>
+                                    {t[p].ppPct!=null?t[p].ppPct.toFixed(1)+"%":"—"}
+                                  </span>
+                                  {t[p].ppPct!=null&&<span style={{fontSize:9,color:"#4a6fa5",marginLeft:3}}>({t[p].ppOpp})</span>}
+                                </td>,
+                                <td key={`${p}pk`} style={{padding:"8px",textAlign:"center",background:p===bestPK&&t[p].pkPct!=null?"rgba(52,211,153,.08)":"transparent"}}>
+                                  <span style={{color:p===bestPK&&t[p].pkPct!=null?"#6ee7b7":"#34d399",fontWeight:p===bestPK&&t[p].pkPct!=null?700:400}}>
+                                    {t[p].pkPct!=null?t[p].pkPct.toFixed(1)+"%":"—"}
+                                  </span>
+                                  {t[p].pkPct!=null&&<span style={{fontSize:9,color:"#4a6fa5",marginLeft:3}}>({t[p].pkOpp})</span>}
+                                </td>,
+                              ])}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
